@@ -1,11 +1,16 @@
 {
-  "name": "pi-subagent",
+  "name": "pi-subagents",
   "version": "1.0.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
-  "keywords": ["pi-package"],
+  "keywords": [
+    "pi-package"
+  ],
   "pi": {
-    "extensions": ["./src/index.ts"]
+    "extensions": [
+      "./src/index.ts"
+    ]
   },
   "peerDependencies": {
     "@mariozechner/pi-ai": "*",
