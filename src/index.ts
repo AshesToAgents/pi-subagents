@@ -865,13 +865,10 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			const tier = tierChoice.startsWith("fast") ? "fast" : "smart";
-			const availableModels = Array.from(
+			const registryModels = Array.from(
 				new Set((ctx.modelRegistry?.getAvailable() ?? []).map((model) => `${model.provider}/${model.id}`)),
 			).sort();
-			if (availableModels.length === 0) {
-				ctx.ui.notify("No available models found in registry.", "warning");
-				return;
-			}
+			const availableModels = ["parent", ...registryModels];
 
 			const selectedModel = await ctx.ui.select(`Select model for ${tier}`, availableModels);
 			if (!selectedModel) {
@@ -879,7 +876,7 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			writeSetting(`${tier}Model`, selectedModel);
+			writeSetting(`${tier}Model`, selectedModel === "parent" ? "" : selectedModel);
 
 			const updatedSettings = readSettings();
 			const updatedFast =
