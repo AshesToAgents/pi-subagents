@@ -1016,9 +1016,11 @@ export default function (pi: ExtensionAPI) {
 					}
 					previousOutput = getFinalOutput(result.messages);
 				}
+				const rawOutput = getFinalOutput(results[results.length - 1].messages) || "(no output)";
+				const processed = processToolResultOutput(rawOutput);
 				return {
-					content: [{ type: "text", text: getFinalOutput(results[results.length - 1].messages) || "(no output)" }],
-					details: makeDetails("chain")(results),
+					content: [{ type: "text", text: processed.displayText }],
+					details: { ...makeDetails("chain")(results), fullOutputPath: processed.fullOutputPath },
 				};
 			}
 
@@ -1089,18 +1091,15 @@ export default function (pi: ExtensionAPI) {
 				});
 
 				const successCount = results.filter((r) => r.exitCode === 0).length;
-				const summaries = results.map((r) => {
-					const output = getFinalOutput(r.messages);
-					return `[${r.agent}] ${r.exitCode === 0 ? "completed" : "failed"}:\n${output || "(no output)"}`;
-				});
+				const agentOutputs = results.map((r) => ({
+					agent: r.agent,
+					exitCode: r.exitCode,
+					output: getFinalOutput(r.messages),
+				}));
+				const processed = processParallelOutput(agentOutputs, successCount);
 				return {
-					content: [
-						{
-							type: "text",
-							text: `Parallel: ${successCount}/${results.length} succeeded\n\n${summaries.join("\n\n")}`,
-						},
-					],
-					details: makeDetails("parallel")(results),
+					content: [{ type: "text", text: processed.displayText }],
+					details: { ...makeDetails("parallel")(results), fullOutputPath: processed.fullOutputPath },
 				};
 			}
 
@@ -1128,9 +1127,11 @@ export default function (pi: ExtensionAPI) {
 						isError: true,
 					};
 				}
+				const rawOutput = getFinalOutput(result.messages) || "(no output)";
+				const processed = processToolResultOutput(rawOutput);
 				return {
-					content: [{ type: "text", text: getFinalOutput(result.messages) || "(no output)" }],
-					details: makeDetails("single")([result]),
+					content: [{ type: "text", text: processed.displayText }],
+					details: { ...makeDetails("single")([result]), fullOutputPath: processed.fullOutputPath },
 				};
 			}
 
