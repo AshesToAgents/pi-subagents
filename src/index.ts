@@ -279,6 +279,11 @@ function formatUsageStats(
 	return parts.join(" ");
 }
 
+function renderFullPath(details: SubagentDetails | undefined, theme: any): string {
+	if (!details?.fullOutputPath) return "";
+	return `\n${theme.fg("dim", `Full output: ${details.fullOutputPath}`)}`;
+}
+
 function formatToolCall(
 	toolName: string,
 	args: Record<string, unknown>,
@@ -1253,6 +1258,7 @@ export default function (pi: ExtensionAPI) {
 						container.addChild(new Spacer(1));
 						container.addChild(new Text(theme.fg("dim", usageStr), 0, 0));
 					}
+					container.addChild(new Text(renderFullPath(details, theme), 0, 0));
 					return container;
 				}
 
@@ -1266,6 +1272,7 @@ export default function (pi: ExtensionAPI) {
 				}
 				const usageStr = formatUsageStats(r.usage, r.model);
 				if (usageStr) text += `\n${theme.fg("dim", usageStr)}`;
+				text += renderFullPath(details, theme);
 				return new Text(text, 0, 0);
 			}
 
@@ -1342,6 +1349,7 @@ export default function (pi: ExtensionAPI) {
 						container.addChild(new Spacer(1));
 						container.addChild(new Text(theme.fg("dim", `Total: ${usageStr}`), 0, 0));
 					}
+					container.addChild(new Text(renderFullPath(details, theme), 0, 0));
 					return container;
 				}
 
@@ -1360,6 +1368,7 @@ export default function (pi: ExtensionAPI) {
 				}
 				const usageStr = formatUsageStats(aggregateUsage(details.results));
 				if (usageStr) text += `\n\n${theme.fg("dim", `Total: ${usageStr}`)}`;
+				text += renderFullPath(details, theme);
 				text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
 				return new Text(text, 0, 0);
 			}
@@ -1427,6 +1436,7 @@ export default function (pi: ExtensionAPI) {
 						container.addChild(new Spacer(1));
 						container.addChild(new Text(theme.fg("dim", `Total: ${usageStr}`), 0, 0));
 					}
+					container.addChild(new Text(renderFullPath(details, theme), 0, 0));
 					return container;
 				}
 
@@ -1449,6 +1459,7 @@ export default function (pi: ExtensionAPI) {
 					const usageStr = formatUsageStats(aggregateUsage(details.results));
 					if (usageStr) text += `\n\n${theme.fg("dim", `Total: ${usageStr}`)}`;
 				}
+				text += renderFullPath(details, theme);
 				if (!expanded) text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
 				return new Text(text, 0, 0);
 			}
