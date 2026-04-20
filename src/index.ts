@@ -19,7 +19,16 @@ import * as path from "node:path";
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import type { Message, Model } from "@mariozechner/pi-ai";
 import { StringEnum } from "@mariozechner/pi-ai";
-import { type ExtensionAPI, type ModelRegistry, getAgentDir, getMarkdownTheme } from "@mariozechner/pi-coding-agent";
+import {
+	type ExtensionAPI,
+	type ModelRegistry,
+	DEFAULT_MAX_BYTES,
+	DEFAULT_MAX_LINES,
+	formatSize,
+	getAgentDir,
+	getMarkdownTheme,
+	truncateTail,
+} from "@mariozechner/pi-coding-agent";
 
 function readSettings(): Record<string, any> {
 	const settingsPath = path.join(getAgentDir(), "settings.json");
@@ -367,6 +376,7 @@ interface SubagentDetails {
 	agentScope: AgentScope;
 	projectAgentsDir: string | null;
 	results: SingleResult[];
+	fullOutputPath?: string; // path to temp file with untruncated output, if truncation occurred
 }
 
 function getFinalOutput(messages: Message[]): string {
@@ -422,6 +432,102 @@ function writePromptToTempFile(agentName: string, prompt: string): { dir: string
 	const filePath = path.join(tmpDir, `prompt-${safeName}.md`);
 	fs.writeFileSync(filePath, prompt, { encoding: "utf-8", mode: 0o600 });
 	return { dir: tmpDir, filePath };
+}
+
+/**
+ * If the text exceeds DEFAULT_MAX_BYTES or DEFAULT_MAX_LINES, write it to a
+ * temp file and return a truncated version with a notice pointing to the file.
+ * Otherwise return the text unchanged.
+ */
+function processToolResultOutput(text: string): { displayText: string; fullOutputPath?: string } {
+	const outputBytes = Buffer.byteLength(text, "utf-8");
+	const outputLines = text.split("\n").length;
+
+	if (outputBytes <= DEFAULT_MAX_BYTES && outputLines <= DEFAULT_MAX_LINES) {
+		return { displayText: text };
+	}
+
+	const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagent-output-"));
+	const fullPath = path.join(tmpDir, "output.md");
+	fs.writeFileSync(fullPath, text, { encoding: "utf-8", mode: 0o600 });
+
+	const truncation = truncateTail(text, {
+		maxLines: DEFAULT_MAX_LINES,
+		maxBytes: DEFAULT_MAX_BYTES,
+	});
+
+	const truncatedLines = truncation.totalLines - truncation.outputLines;
+	const truncatedBytes = truncation.totalBytes - truncation.outputBytes;
+
+	let displayText = truncation.content;
+	displayText += `\n\n[Output truncated: showing ${truncation.outputLines} of ${truncation.totalLines} lines`;
+	displayText += ` (${formatSize(truncation.outputBytes)} of ${formatSize(truncation.totalBytes)}).`;
+	displayText += ` ${truncatedLines} lines (${formatSize(truncatedBytes)}) omitted.`;
+	displayText += ` Full output saved to: ${fullPath}]`;
+
+	return { displayText, fullOutputPath: fullPath };
+}
+
+/**
+ * For parallel mode: truncate each agent's output proportionally rather than
+ * truncating the combined string (which would cut off early agents entirely).
+ * Writes the full combined output to a temp file.
+ */
+function processParallelOutput(
+	agentOutputs: Array<{ agent: string; exitCode: number; output: string }>,
+	successCount: number,
+): { displayText: string; fullOutputPath?: string } {
+	const fullSections = agentOutputs.map((a) => {
+		const status = a.exitCode === 0 ? "completed" : "failed";
+		return `[${a.agent}] ${status}:\n${a.output || "(no output)"}`;
+	});
+	const fullText = `Parallel: ${successCount}/${agentOutputs.length} succeeded\n\n${fullSections.join("\n\n")}`;
+
+	const outputBytes = Buffer.byteLength(fullText, "utf-8");
+	const outputLines = fullText.split("\n").length;
+
+	if (outputBytes <= DEFAULT_MAX_BYTES && outputLines <= DEFAULT_MAX_LINES) {
+		return { displayText: fullText };
+	}
+
+	// Write full output to temp file
+	const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagent-output-"));
+	const fullPath = path.join(tmpDir, "output.md");
+	fs.writeFileSync(fullPath, fullText, { encoding: "utf-8", mode: 0o600 });
+
+	// Budget: divide limits equally among agents
+	const budgetBytes = Math.floor(DEFAULT_MAX_BYTES / agentOutputs.length);
+	const budgetLines = Math.floor(DEFAULT_MAX_LINES / agentOutputs.length);
+
+	const truncatedSections = agentOutputs.map((a) => {
+		const status = a.exitCode === 0 ? "completed" : "failed";
+		const header = `[${a.agent}] ${status}:\n`;
+		const headerBytes = Buffer.byteLength(header, "utf-8");
+		const availableBytes = Math.max(0, budgetBytes - headerBytes);
+
+		if (!a.output || a.output === "(no output)") {
+			return header + (a.output || "(no output)");
+		}
+
+		const truncation = truncateTail(a.output, { maxLines: budgetLines, maxBytes: availableBytes });
+
+		if (!truncation.truncated) {
+			return header + a.output;
+		}
+
+		const omitLines = truncation.totalLines - truncation.outputLines;
+		const omitBytes = truncation.totalBytes - truncation.outputBytes;
+		return (
+			header +
+			truncation.content +
+			`\n[...${omitLines} lines (${formatSize(omitBytes)}) truncated. See full output file.]`
+		);
+	});
+
+	let displayText = `Parallel: ${successCount}/${agentOutputs.length} succeeded\n\n${truncatedSections.join("\n\n")}`;
+	displayText += `\n\n[Full output saved to: ${fullPath}]`;
+
+	return { displayText, fullOutputPath: fullPath };
 }
 
 type OnUpdateCallback = (partial: AgentToolResult<SubagentDetails>) => void;
