@@ -88,7 +88,7 @@ function resolveModel(
 	return agentModel;
 }
 import { Container, Markdown, Spacer, Text } from "@mariozechner/pi-tui";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import { type AgentConfig, type AgentScope, discoverAgents, isTopLevelAgent } from "./agents.js";
 
 const MAX_PARALLEL_TASKS = 8;

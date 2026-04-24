@@ -17,7 +17,7 @@
     "@mariozechner/pi-agent-core": "*",
     "@mariozechner/pi-coding-agent": "*",
     "@mariozechner/pi-tui": "*",
-    "@sinclair/typebox": "^0.34.49"
+    "typebox": "^1.0.0"
   },
   "devDependencies": {
     "typescript": "^5.8.0",
