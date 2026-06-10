@@ -25,6 +25,8 @@ pi -e ssh://git@github.com/SunflowerFuchs/pi-subagents.git
 | Tool | `subagent_agents` | List available subagents with name, description, source, model, and tools |
 | Command | `/subagents` | List available subagents with optional scope and detail filters |
 | Command | `/subagent-models` | Configure `fastModel`/`smartModel` aliases used by subagents |
+| Command | `/subagent-tmux` | Toggle automatic tmux window opening for subagent sessions |
+| Command | `/subagent-resume` | Resume a subagent session in a new tmux window |
 
 On startup, pi-subagents injects an agent overview into the system prompt so the model knows which subagents are available without making an extra tool call.
 
@@ -86,6 +88,41 @@ Configure model aliases with `/subagent-models` or edit `~/.pi/agent/settings.js
   "smartModel": "anthropic/claude-opus-4-20250122"
 }
 ```
+
+### Session Persistence
+
+By default, subagent sessions are now persisted alongside the parent session in a `subagents/` subdirectory. Each subagent gets a session ID of `<parentId>-<counter>` (e.g., `a1b2c3d4-1`, `a1b2c3d4-2`), where the counter increments globally across the parent session.
+
+Sessions are stored in `<parentSessionDir>/subagents/` and can be resumed at any time.
+
+### Tmux Integration
+
+When running inside a tmux session, pi-subagents can automatically open a new tmux window for each completed subagent, giving you the full interactive pi TUI experience to inspect and continue the conversation.
+
+**Enable with `/subagent-tmux`:**
+
+```
+/subagent-tmux          # Toggle between "always" and "never"
+```
+
+Or set directly in `~/.pi/agent/settings.json`:
+
+```json
+{
+  "subagentTmux": "always"
+}
+```
+
+When enabled, a new tmux window named `pi: <agentName>` opens after each successful subagent invocation.
+
+**Resume sessions on demand with `/subagent-resume`:**
+
+```
+/subagent-resume        # List subagent sessions and pick one
+/subagent-resume 2      # Open subagent session #2 directly
+```
+
+This works regardless of the `subagentTmux` setting — you can keep auto-opening disabled and manually resume sessions when needed.
 
 ## Defining Agents
 
