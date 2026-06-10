@@ -90,6 +90,7 @@ function resolveModel(
 import { Container, Markdown, Spacer, Text } from "@mariozechner/pi-tui";
 import { Type } from "typebox";
 import { type AgentConfig, type AgentScope, discoverAgents, isTopLevelAgent } from "./agents.js";
+import { getNextSubagentCounter } from "./session-helpers.js";
 
 const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
@@ -374,6 +375,7 @@ interface SingleResult {
 	stopReason?: string;
 	errorMessage?: string;
 	step?: number;
+	sessionId?: string;
 }
 
 interface SubagentDetails {
@@ -549,6 +551,8 @@ async function runSingleAgent(
 	makeDetails: (results: SingleResult[]) => SubagentDetails,
 	currentModel: Model<any> | undefined,
 	modelRegistry: ModelRegistry | undefined,
+	parentSessionId?: string,
+	subagentSessionDir?: string,
 ): Promise<SingleResult> {
 	const agent = agents.find((a) => a.name === agentName);
 
@@ -566,7 +570,16 @@ async function runSingleAgent(
 		};
 	}
 
-	const args: string[] = ["--mode", "json", "-p", "--no-session"];
+	const args: string[] = ["--mode", "json", "-p"];
+	let sessionId: string | undefined;
+	if (parentSessionId && subagentSessionDir) {
+		fs.mkdirSync(subagentSessionDir, { recursive: true });
+		sessionId = `${parentSessionId}-${getNextSubagentCounter(subagentSessionDir, parentSessionId)}`;
+		args.push("--session-id", sessionId);
+		args.push("--session-dir", subagentSessionDir);
+	} else {
+		args.push("--no-session");
+	}
 	const resolvedModel = resolveModel(agent.model, currentModel, modelRegistry);
 	if (resolvedModel) args.push("--model", resolvedModel);
 
@@ -591,6 +604,7 @@ async function runSingleAgent(
 		usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
 		model: resolvedModel ?? agent.model,
 		step,
+		sessionId,
 	};
 
 	const emitUpdate = () => {
@@ -915,6 +929,10 @@ export default function (pi: ExtensionAPI) {
 			const agents = discovery.agents;
 			const confirmProjectAgents = params.confirmProjectAgents ?? true;
 
+			const parentSessionId = ctx.sessionManager?.getSessionId();
+			const parentSessionDir = ctx.sessionManager?.getSessionDir();
+			const subagentSessionDir = parentSessionDir ? path.join(parentSessionDir, "subagents") : undefined;
+
 			const hasChain = (params.chain?.length ?? 0) > 0;
 			const hasTasks = (params.tasks?.length ?? 0) > 0;
 			const hasSingle = Boolean(params.agent && params.task);
@@ -1002,6 +1020,8 @@ export default function (pi: ExtensionAPI) {
 						makeDetails("chain"),
 						ctx.model,
 						ctx.modelRegistry,
+						parentSessionId,
+						subagentSessionDir,
 					);
 					results.push(result);
 
@@ -1086,6 +1106,8 @@ export default function (pi: ExtensionAPI) {
 						makeDetails("parallel"),
 						ctx.model,
 						ctx.modelRegistry,
+						parentSessionId,
+						subagentSessionDir,
 					);
 					allResults[index] = result;
 					emitParallelUpdate();
@@ -1118,6 +1140,8 @@ export default function (pi: ExtensionAPI) {
 					makeDetails("single"),
 					ctx.model,
 					ctx.modelRegistry,
+					parentSessionId,
+					subagentSessionDir,
 				);
 				const isError = result.exitCode !== 0 || result.stopReason === "error" || result.stopReason === "aborted";
 				if (isError) {
