@@ -12,7 +12,7 @@
  * Uses JSON mode to capture structured output from subagents.
  */
 
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -44,6 +44,34 @@ function writeSetting(key: string, value: string): void {
 	const settings = readSettings();
 	settings[key] = value;
 	fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
+}
+
+/**
+ * Open a tmux window that resumes the given subagent session.
+ *
+ * Best-effort: returns silently on any failure (tmux missing, session
+ * files gone, etc.) so a tmux error never breaks the subagent tool call.
+ */
+function maybeOpenTmuxWindow(
+	result: SingleResult,
+	subagentSessionDir: string | undefined,
+	tmuxSetting: string,
+): void {
+	if (tmuxSetting !== "always") return
+	if (!isTmuxAvailable()) return
+	if (result.exitCode !== 0) return
+	if (!result.sessionId || !subagentSessionDir) return
+
+	try {
+		const args = buildTmuxWindowCommand(
+			`pi: ${result.agent}`,
+			subagentSessionDir,
+			result.sessionId,
+		)
+		execFileSync(args[0], args.slice(1), { stdio: "ignore" })
+	} catch {
+		// tmux window opening is best-effort; don't fail the tool call
+	}
 }
 
 /**
@@ -90,7 +118,7 @@ function resolveModel(
 import { Container, Markdown, Spacer, Text } from "@mariozechner/pi-tui";
 import { Type } from "typebox";
 import { type AgentConfig, type AgentScope, discoverAgents, isTopLevelAgent } from "./agents.js";
-import { getNextSubagentCounter } from "./session-helpers.js";
+import { buildTmuxWindowCommand, getNextSubagentCounter, isTmuxAvailable } from "./session-helpers.js";
 
 const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
@@ -911,6 +939,143 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
+	pi.registerCommand("subagent-tmux", {
+		description: "Toggle tmux window behavior for subagents (always/never).",
+		handler: async (_args, ctx) => {
+			const settings = readSettings();
+			const current = settings.subagentTmux === "always" ? "always" : "never";
+
+			if (!ctx.hasUI) {
+				pi.sendMessage({
+					customType: "subagent-tmux",
+					content: `Current subagent tmux setting: ${current}`,
+					display: true,
+				});
+				return;
+			}
+
+			const choice = await ctx.ui.select("Subagent tmux behavior", [
+				`always (currently: ${current === "always" ? "✓" : " "})`,
+				`never  (currently: ${current === "never" ? "✓" : " "})`,
+			]);
+			if (!choice) {
+				ctx.ui.notify("Canceled.", "warning");
+				return;
+			}
+
+			const newValue = choice.startsWith("always") ? "always" : "never";
+			writeSetting("subagentTmux", newValue);
+			ctx.ui.notify(`Subagent tmux set to: ${newValue}`, "info");
+			pi.sendMessage({
+				customType: "subagent-tmux",
+				content: `Subagent tmux behavior: ${newValue}`,
+				display: true,
+			});
+		},
+	});
+
+	pi.registerCommand("subagent-resume", {
+		description: "Resume a subagent session in a new tmux window. Usage: /subagent-resume [n]",
+		handler: async (args, ctx) => {
+			if (!isTmuxAvailable()) {
+				ctx.ui.notify("Not running in a tmux session.", "warning");
+				return;
+			}
+
+			const parentSessionId = ctx.sessionManager?.getSessionId();
+			const parentSessionDir = ctx.sessionManager?.getSessionDir();
+			if (!parentSessionId || !parentSessionDir) {
+				ctx.ui.notify("No active session to resume subagents from.", "warning");
+				return;
+			}
+
+			const subagentSessionDir = path.join(parentSessionDir, "subagents");
+
+			// List all subagent sessions for this parent
+			const sessions: Array<{ id: string; file: string; mtime: Date }> = [];
+			try {
+				const files = fs.readdirSync(subagentSessionDir);
+				for (const file of files) {
+					const match = file.match(
+						new RegExp(`_${parentSessionId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-(\\d+)\\.jsonl$`),
+					);
+					if (match) {
+						const stat = fs.statSync(path.join(subagentSessionDir, file));
+						sessions.push({
+							id: `${parentSessionId}-${match[1]}`,
+							file,
+							mtime: stat.mtime,
+						});
+					}
+				}
+			} catch {
+				// Dir doesn't exist
+			}
+
+			sessions.sort((a, b) => a.mtime.getTime() - b.mtime.getTime());
+
+			if (sessions.length === 0) {
+				ctx.ui.notify("No subagent sessions found for this session.", "info");
+				return;
+			}
+
+			// If a number was provided, open that specific session
+			const numArg = args.trim();
+			if (numArg) {
+				const num = parseInt(numArg, 10);
+				if (isNaN(num) || num < 1 || num > sessions.length) {
+					ctx.ui.notify(`Invalid session number. Use 1-${sessions.length}.`, "warning");
+					return;
+				}
+				const session = sessions[num - 1];
+				try {
+					const cmdArgs = buildTmuxWindowCommand(
+						`pi: subagent-${num}`,
+						subagentSessionDir,
+						session.id,
+					);
+					execFileSync(cmdArgs[0], cmdArgs.slice(1), { stdio: "ignore" });
+				} catch {
+					ctx.ui.notify("Failed to open tmux window.", "warning");
+				}
+				return;
+			}
+
+			// No arg: show list for selection
+			if (!ctx.hasUI) {
+				const list = sessions
+					.map((s, i) => `${i + 1}. ${s.id} (${s.mtime.toISOString()})`)
+					.join("\n");
+				pi.sendMessage({
+					customType: "subagent-resume",
+					content: `Subagent sessions:\n${list}`,
+					display: true,
+				});
+				return;
+			}
+
+			const options = sessions.map((s, i) => `${i + 1}. ${s.id} (${s.mtime.toLocaleString()})`);
+			const choice = await ctx.ui.select("Select subagent session to resume", options);
+			if (!choice) {
+				ctx.ui.notify("Canceled.", "warning");
+				return;
+			}
+
+			const selectedIndex = parseInt(choice.split(".")[0], 10) - 1;
+			const session = sessions[selectedIndex];
+			try {
+				const cmdArgs = buildTmuxWindowCommand(
+					`pi: subagent-${selectedIndex + 1}`,
+					subagentSessionDir,
+					session.id,
+				);
+				execFileSync(cmdArgs[0], cmdArgs.slice(1), { stdio: "ignore" });
+			} catch {
+				ctx.ui.notify("Failed to open tmux window.", "warning");
+			}
+		},
+	});
+
 	pi.registerTool({
 		name: "subagent",
 		label: "Subagent",
@@ -932,6 +1097,9 @@ export default function (pi: ExtensionAPI) {
 			const parentSessionId = ctx.sessionManager?.getSessionId();
 			const parentSessionDir = ctx.sessionManager?.getSessionDir();
 			const subagentSessionDir = parentSessionDir ? path.join(parentSessionDir, "subagents") : undefined;
+
+			const settings = readSettings();
+			const tmuxSetting = settings.subagentTmux === "always" ? "always" : "never";
 
 			const hasChain = (params.chain?.length ?? 0) > 0;
 			const hasTasks = (params.tasks?.length ?? 0) > 0;
@@ -1025,6 +1193,8 @@ export default function (pi: ExtensionAPI) {
 					);
 					results.push(result);
 
+					maybeOpenTmuxWindow(result, subagentSessionDir, tmuxSetting);
+
 					const isError =
 						result.exitCode !== 0 || result.stopReason === "error" || result.stopReason === "aborted";
 					if (isError) {
@@ -1111,6 +1281,7 @@ export default function (pi: ExtensionAPI) {
 					);
 					allResults[index] = result;
 					emitParallelUpdate();
+					maybeOpenTmuxWindow(result, subagentSessionDir, tmuxSetting);
 					return result;
 				});
 
@@ -1143,6 +1314,7 @@ export default function (pi: ExtensionAPI) {
 					parentSessionId,
 					subagentSessionDir,
 				);
+				maybeOpenTmuxWindow(result, subagentSessionDir, tmuxSetting);
 				const isError = result.exitCode !== 0 || result.stopReason === "error" || result.stopReason === "aborted";
 				if (isError) {
 					const errorMsg =
