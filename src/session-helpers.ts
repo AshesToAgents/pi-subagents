@@ -74,20 +74,33 @@ export function buildTmuxWindowCommand(windowName: string, sessionDir: string, s
 	return args;
 }
 
+export interface SessionSummary {
+	/** Session name from --name flag (session_info entry) */
+	name?: string
+	/** Task description extracted from first user message */
+	task: string
+}
+
 /**
- * Extract a short summary from a subagent session file.
+ * Extract a summary from a subagent session file.
  *
- * Reads the JSONL file and finds the first user message to extract
- * the task description. Returns a truncated preview suitable for
- * display in a selection list.
+ * Reads the JSONL file for the session name (from session_info entries)
+ * and the first user message (task description). Returns both fields
+ * for display in a selection list.
  */
-export function extractSessionSummary(filePath: string): string {
+export function extractSessionSummary(filePath: string): SessionSummary {
+	const result: SessionSummary = { task: "(no task)" }
 	try {
 		const content = fs.readFileSync(filePath, "utf-8")
 		for (const line of content.split("\n")) {
 			if (!line.trim()) continue
 			let entry: any
 			try { entry = JSON.parse(line) } catch { continue }
+
+			// Extract session name from session_info entries (latest wins)
+			if (entry.type === "session_info" && entry.name) {
+				result.name = entry.name.trim()
+			}
 
 			if (entry.type === "message" && entry.message?.role === "user") {
 				const msgContent = entry.message.content
@@ -102,11 +115,12 @@ export function extractSessionSummary(filePath: string): string {
 				// Strip the "Task: " prefix that subagents add
 				text = text.replace(/^Task:\s*/, "").trim()
 				if (text.length > 80) text = text.slice(0, 77) + "..."
-				return text || "(no task)"
+				result.task = text || "(no task)"
+				return result
 			}
 		}
 	} catch {
 		// File not readable
 	}
-	return "(no task)"
+	return result
 }

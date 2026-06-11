@@ -92,7 +92,18 @@ describe("extractSessionSummary", () => {
 			JSON.stringify({ type: "message", message: { role: "user", content: [{ type: "text", text: "Task: Analyze the codebase structure" }] } }),
 		];
 		fs.writeFileSync(filePath, lines.join("\n"));
-		expect(extractSessionSummary(filePath)).toBe("Analyze the codebase structure");
+		expect(extractSessionSummary(filePath)).toEqual({ task: "Analyze the codebase structure" });
+	});
+
+	it("extracts session name from session_info entry", () => {
+		const filePath = path.join(tmpDir, "session.jsonl");
+		const lines = [
+			JSON.stringify({ type: "session", version: 3, id: "abc-1" }),
+			JSON.stringify({ type: "session_info", name: "scout" }),
+			JSON.stringify({ type: "message", message: { role: "user", content: [{ type: "text", text: "Task: Quick recon" }] } }),
+		];
+		fs.writeFileSync(filePath, lines.join("\n"));
+		expect(extractSessionSummary(filePath)).toEqual({ name: "scout", task: "Quick recon" });
 	});
 
 	it("truncates long tasks", () => {
@@ -102,17 +113,17 @@ describe("extractSessionSummary", () => {
 			JSON.stringify({ type: "message", message: { role: "user", content: [{ type: "text", text: `Task: ${longTask}` }] } }),
 		];
 		fs.writeFileSync(filePath, lines.join("\n"));
-		expect(extractSessionSummary(filePath)).toBe("A".repeat(77) + "...");
+		expect(extractSessionSummary(filePath)).toEqual({ task: "A".repeat(77) + "..." });
 	});
 
 	it("returns (no task) for empty session", () => {
 		const filePath = path.join(tmpDir, "session.jsonl");
 		fs.writeFileSync(filePath, JSON.stringify({ type: "session", version: 3, id: "abc-1" }));
-		expect(extractSessionSummary(filePath)).toBe("(no task)");
+		expect(extractSessionSummary(filePath)).toEqual({ task: "(no task)" });
 	});
 
 	it("returns (no task) for missing file", () => {
-		expect(extractSessionSummary(path.join(tmpDir, "missing.jsonl"))).toBe("(no task)");
+		expect(extractSessionSummary(path.join(tmpDir, "missing.jsonl"))).toEqual({ task: "(no task)" });
 	});
 });
 

@@ -606,6 +606,7 @@ async function runSingleAgent(
 		sessionId = `${parentSessionId}-${getNextSubagentCounter(subagentSessionDir, parentSessionId)}`;
 		args.push("--session-id", sessionId);
 		args.push("--session-dir", subagentSessionDir);
+		args.push("--name", agent.name);
 	} else {
 		args.push("--no-session");
 	}
@@ -993,7 +994,7 @@ export default function (pi: ExtensionAPI) {
 			const subagentSessionDir = path.join(parentSessionDir, "subagents");
 
 			// List all subagent sessions for this parent
-			const sessions: Array<{ id: string; file: string; summary: string; mtime: Date }> = [];
+			const sessions: Array<{ id: string; file: string; summary: ReturnType<typeof extractSessionSummary>; mtime: Date }> = [];
 			try {
 				const files = fs.readdirSync(subagentSessionDir);
 				for (const file of files) {
@@ -1034,7 +1035,7 @@ export default function (pi: ExtensionAPI) {
 				const session = sessions[num - 1];
 				try {
 					const cmdArgs = buildTmuxWindowCommand(
-						`pi: subagent-${num}`,
+						`pi: ${session.summary.name ?? `subagent-${num}`}`,
 						subagentSessionDir,
 						session.id,
 					);
@@ -1048,7 +1049,7 @@ export default function (pi: ExtensionAPI) {
 			// No arg: show list for selection
 			if (!ctx.hasUI) {
 				const list = sessions
-					.map((s, i) => `${i + 1}. ${s.summary}`)
+					.map((s, i) => `${i + 1}. ${s.summary.name ?? "subagent"}: ${s.summary.task}`)
 					.join("\n");
 				pi.sendMessage({
 					customType: "subagent-resume",
@@ -1058,7 +1059,7 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			const options = sessions.map((s, i) => `${i + 1}. ${s.summary}`);
+			const options = sessions.map((s, i) => `${i + 1}. ${s.summary.name ?? "subagent"}: ${s.summary.task}`);
 			const choice = await ctx.ui.select("Select subagent session to resume", options);
 			if (!choice) {
 				ctx.ui.notify("Canceled.", "warning");
@@ -1069,7 +1070,7 @@ export default function (pi: ExtensionAPI) {
 			const session = sessions[selectedIndex];
 			try {
 				const cmdArgs = buildTmuxWindowCommand(
-					`pi: subagent-${selectedIndex + 1}`,
+					`pi: ${session.summary.name ?? `subagent-${selectedIndex + 1}`}`,
 					subagentSessionDir,
 					session.id,
 				);
