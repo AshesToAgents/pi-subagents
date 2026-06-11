@@ -67,6 +67,7 @@ function maybeOpenTmuxWindow(
 			`pi: ${result.agent}`,
 			subagentSessionDir,
 			result.sessionId,
+			true, // background — don't switch focus away from parent
 		)
 		execFileSync(args[0], args.slice(1), { stdio: "ignore" })
 	} catch {
@@ -118,7 +119,7 @@ function resolveModel(
 import { Container, Markdown, Spacer, Text } from "@mariozechner/pi-tui";
 import { Type } from "typebox";
 import { type AgentConfig, type AgentScope, discoverAgents, isTopLevelAgent } from "./agents.js";
-import { buildTmuxWindowCommand, getNextSubagentCounter, isTmuxAvailable } from "./session-helpers.js";
+import { buildTmuxWindowCommand, extractSessionSummary, getNextSubagentCounter, isTmuxAvailable } from "./session-helpers.js";
 
 const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
@@ -992,7 +993,7 @@ export default function (pi: ExtensionAPI) {
 			const subagentSessionDir = path.join(parentSessionDir, "subagents");
 
 			// List all subagent sessions for this parent
-			const sessions: Array<{ id: string; file: string; mtime: Date }> = [];
+			const sessions: Array<{ id: string; file: string; summary: string; mtime: Date }> = [];
 			try {
 				const files = fs.readdirSync(subagentSessionDir);
 				for (const file of files) {
@@ -1000,10 +1001,13 @@ export default function (pi: ExtensionAPI) {
 						new RegExp(`_${parentSessionId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-(\\d+)\\.jsonl$`),
 					);
 					if (match) {
-						const stat = fs.statSync(path.join(subagentSessionDir, file));
+						const filePath = path.join(subagentSessionDir, file);
+						const stat = fs.statSync(filePath);
+						const summary = extractSessionSummary(filePath);
 						sessions.push({
 							id: `${parentSessionId}-${match[1]}`,
 							file,
+							summary,
 							mtime: stat.mtime,
 						});
 					}
@@ -1044,7 +1048,7 @@ export default function (pi: ExtensionAPI) {
 			// No arg: show list for selection
 			if (!ctx.hasUI) {
 				const list = sessions
-					.map((s, i) => `${i + 1}. ${s.id} (${s.mtime.toISOString()})`)
+					.map((s, i) => `${i + 1}. ${s.summary}`)
 					.join("\n");
 				pi.sendMessage({
 					customType: "subagent-resume",
@@ -1054,7 +1058,7 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			const options = sessions.map((s, i) => `${i + 1}. ${s.id} (${s.mtime.toLocaleString()})`);
+			const options = sessions.map((s, i) => `${i + 1}. ${s.summary}`);
 			const choice = await ctx.ui.select("Select subagent session to resume", options);
 			if (!choice) {
 				ctx.ui.notify("Canceled.", "warning");

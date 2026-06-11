@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { buildTmuxWindowCommand, getNextSubagentCounter, isTmuxAvailable } from "./session-helpers.js";
+import { buildTmuxWindowCommand, extractSessionSummary, getNextSubagentCounter, isTmuxAvailable } from "./session-helpers.js";
 
 describe("getNextSubagentCounter", () => {
 	let tmpDir: string;
@@ -74,11 +74,69 @@ describe("isTmuxAvailable", () => {
 	});
 });
 
+describe("extractSessionSummary", () => {
+	let tmpDir: string;
+
+	beforeEach(() => {
+		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagent-summary-test-"));
+	});
+
+	afterEach(() => {
+		fs.rmSync(tmpDir, { recursive: true, force: true });
+	});
+
+	it("extracts task text from first user message", () => {
+		const filePath = path.join(tmpDir, "session.jsonl");
+		const lines = [
+			JSON.stringify({ type: "session", version: 3, id: "abc-1" }),
+			JSON.stringify({ type: "message", message: { role: "user", content: [{ type: "text", text: "Task: Analyze the codebase structure" }] } }),
+		];
+		fs.writeFileSync(filePath, lines.join("\n"));
+		expect(extractSessionSummary(filePath)).toBe("Analyze the codebase structure");
+	});
+
+	it("truncates long tasks", () => {
+		const filePath = path.join(tmpDir, "session.jsonl");
+		const longTask = "A".repeat(100);
+		const lines = [
+			JSON.stringify({ type: "message", message: { role: "user", content: [{ type: "text", text: `Task: ${longTask}` }] } }),
+		];
+		fs.writeFileSync(filePath, lines.join("\n"));
+		expect(extractSessionSummary(filePath)).toBe("A".repeat(77) + "...");
+	});
+
+	it("returns (no task) for empty session", () => {
+		const filePath = path.join(tmpDir, "session.jsonl");
+		fs.writeFileSync(filePath, JSON.stringify({ type: "session", version: 3, id: "abc-1" }));
+		expect(extractSessionSummary(filePath)).toBe("(no task)");
+	});
+
+	it("returns (no task) for missing file", () => {
+		expect(extractSessionSummary(path.join(tmpDir, "missing.jsonl"))).toBe("(no task)");
+	});
+});
+
 describe("buildTmuxWindowCommand", () => {
-	it("returns the correct command array", () => {
+	it("returns the correct command array (foreground)", () => {
 		expect(buildTmuxWindowCommand("subagent-1", "/tmp/sessions", "parent-1")).toEqual([
 			"tmux",
 			"new-window",
+			"-n",
+			"subagent-1",
+			"--",
+			"pi",
+			"--session",
+			"parent-1",
+			"--session-dir",
+			"/tmp/sessions",
+		]);
+	});
+
+	it("includes -d flag when background is true", () => {
+		expect(buildTmuxWindowCommand("subagent-1", "/tmp/sessions", "parent-1", true)).toEqual([
+			"tmux",
+			"new-window",
+			"-d",
 			"-n",
 			"subagent-1",
 			"--",

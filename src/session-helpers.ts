@@ -67,6 +67,46 @@ export function isTmuxAvailable(): boolean {
  * Build the argument array used to spawn a new tmux window that resumes
  * an existing pi session.
  */
-export function buildTmuxWindowCommand(windowName: string, sessionDir: string, sessionId: string): string[] {
-	return ["tmux", "new-window", "-n", windowName, "--", "pi", "--session", sessionId, "--session-dir", sessionDir];
+export function buildTmuxWindowCommand(windowName: string, sessionDir: string, sessionId: string, background = false): string[] {
+	const args = ["tmux", "new-window"];
+	if (background) args.push("-d");
+	args.push("-n", windowName, "--", "pi", "--session", sessionId, "--session-dir", sessionDir);
+	return args;
+}
+
+/**
+ * Extract a short summary from a subagent session file.
+ *
+ * Reads the JSONL file and finds the first user message to extract
+ * the task description. Returns a truncated preview suitable for
+ * display in a selection list.
+ */
+export function extractSessionSummary(filePath: string): string {
+	try {
+		const content = fs.readFileSync(filePath, "utf-8")
+		for (const line of content.split("\n")) {
+			if (!line.trim()) continue
+			let entry: any
+			try { entry = JSON.parse(line) } catch { continue }
+
+			if (entry.type === "message" && entry.message?.role === "user") {
+				const msgContent = entry.message.content
+				let text = ""
+				if (Array.isArray(msgContent)) {
+					for (const part of msgContent) {
+						if (part?.type === "text") { text = part.text; break }
+					}
+				} else if (typeof msgContent === "string") {
+					text = msgContent
+				}
+				// Strip the "Task: " prefix that subagents add
+				text = text.replace(/^Task:\s*/, "").trim()
+				if (text.length > 80) text = text.slice(0, 77) + "..."
+				return text || "(no task)"
+			}
+		}
+	} catch {
+		// File not readable
+	}
+	return "(no task)"
 }
