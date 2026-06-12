@@ -67,6 +67,30 @@ subagent({
 })
 ```
 
+#### Continue — multi-turn follow-ups
+
+Every subagent invocation returns a `subagentIndex` (a session counter). Use `continue` with that index to send a follow-up message to the same session — the subagent retains its full context from previous turns.
+
+```
+// First call — returns subagentIndex: 1
+subagent({ agent: "scout", task: "Analyze the auth module" })
+
+// Follow-up — continues session 1 with full context
+subagent({ agent: "scout", task: "Tell me more about the token refresh flow", continue: 1 })
+```
+
+Works in all modes:
+
+```
+// Parallel follow-ups to different sessions
+subagent({
+  tasks: [
+    { agent: "scout", task: "Elaborate on the auth flow", continue: 1 },
+    { agent: "scout", task: "Elaborate on the DB schema", continue: 2 },
+  ]
+})
+```
+
 ### Scope Filtering
 
 Both tools accept an `agentScope` parameter to control which agent sources are searched:
