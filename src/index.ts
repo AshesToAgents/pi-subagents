@@ -75,9 +75,19 @@ function maybeOpenTmuxWindow(
 	}
 }
 
+function extractCounter(sessionId: string | undefined): number | undefined {
+	if (!sessionId) return undefined
+	const dashIdx = sessionId.lastIndexOf("-")
+	if (dashIdx < 0) return undefined
+	const counter = sessionId.slice(dashIdx + 1)
+	const n = parseInt(counter, 10)
+	return isNaN(n) ? undefined : n
+}
+
 /**
  * Resolve an agent's model field to a concrete "provider/modelId" string.
  *
+ * Resolution logic:
  * - undefined / "" → undefined (let pi pick default)
  * - "parent"       → same model as the parent agent
  * - "fast"/"smart" → model alias from settings.json (fastModel/smartModel)
@@ -413,6 +423,7 @@ interface SubagentDetails {
 	projectAgentsDir: string | null;
 	results: SingleResult[];
 	fullOutputPath?: string; // path to temp file with untruncated output, if truncation occurred
+	subagentIndices?: number[]; // session counters for each result, for follow-up via `continue`
 }
 
 function getFinalOutput(messages: Message[]): string {
@@ -582,6 +593,7 @@ async function runSingleAgent(
 	modelRegistry: ModelRegistry | undefined,
 	parentSessionId?: string,
 	subagentSessionDir?: string,
+	continueCounter?: number,
 ): Promise<SingleResult> {
 	const agent = agents.find((a) => a.name === agentName);
 
@@ -603,7 +615,11 @@ async function runSingleAgent(
 	let sessionId: string | undefined;
 	if (parentSessionId && subagentSessionDir) {
 		fs.mkdirSync(subagentSessionDir, { recursive: true });
-		sessionId = `${parentSessionId}-${getNextSubagentCounter(subagentSessionDir, parentSessionId)}`;
+		if (continueCounter !== undefined) {
+			sessionId = `${parentSessionId}-${continueCounter}`;
+		} else {
+			sessionId = `${parentSessionId}-${getNextSubagentCounter(subagentSessionDir, parentSessionId)}`;
+		}
 		args.push("--session-id", sessionId);
 		args.push("--session-dir", subagentSessionDir);
 		args.push("--name", agent.name);
@@ -762,12 +778,14 @@ const TaskItem = Type.Object({
 	agent: Type.String({ description: "Name of the agent to invoke" }),
 	task: Type.String({ description: "Task to delegate to the agent" }),
 	cwd: Type.Optional(Type.String({ description: "Working directory for the agent process" })),
+	continue: Type.Optional(Type.Number({ description: "Subagent session counter to continue a prior conversation (from prior result's subagentIndex)" })),
 });
 
 const ChainItem = Type.Object({
 	agent: Type.String({ description: "Name of the agent to invoke" }),
 	task: Type.String({ description: "Task with optional {previous} placeholder for prior output" }),
 	cwd: Type.Optional(Type.String({ description: "Working directory for the agent process" })),
+	continue: Type.Optional(Type.Number({ description: "Subagent session counter to continue a prior conversation (from prior result's subagentIndex)" })),
 });
 
 const AgentScopeSchema = StringEnum(["user", "project", "package", "all"] as const, {
@@ -795,6 +813,7 @@ const SubagentParams = Type.Object({
 		Type.Boolean({ description: "Prompt before running project-local agents. Default: true.", default: true }),
 	),
 	cwd: Type.Optional(Type.String({ description: "Working directory for the agent process (single mode)" })),
+	continue: Type.Optional(Type.Number({ description: "Subagent session counter to continue a prior conversation (from prior result's subagentIndex)" })),
 });
 
 export default function (pi: ExtensionAPI) {
@@ -1195,6 +1214,7 @@ export default function (pi: ExtensionAPI) {
 						ctx.modelRegistry,
 						parentSessionId,
 						subagentSessionDir,
+						step.continue,
 					);
 					results.push(result);
 
@@ -1217,7 +1237,7 @@ export default function (pi: ExtensionAPI) {
 				const processed = processToolResultOutput(rawOutput);
 				return {
 					content: [{ type: "text", text: processed.displayText }],
-					details: { ...makeDetails("chain")(results), fullOutputPath: processed.fullOutputPath },
+					details: { ...makeDetails("chain")(results), fullOutputPath: processed.fullOutputPath, subagentIndices: results.map((r) => extractCounter(r.sessionId)).filter((n): n is number => n !== undefined) },
 				};
 			}
 
@@ -1283,6 +1303,7 @@ export default function (pi: ExtensionAPI) {
 						ctx.modelRegistry,
 						parentSessionId,
 						subagentSessionDir,
+						t.continue,
 					);
 					allResults[index] = result;
 					emitParallelUpdate();
@@ -1299,7 +1320,7 @@ export default function (pi: ExtensionAPI) {
 				const processed = processParallelOutput(agentOutputs, successCount);
 				return {
 					content: [{ type: "text", text: processed.displayText }],
-					details: { ...makeDetails("parallel")(results), fullOutputPath: processed.fullOutputPath },
+					details: { ...makeDetails("parallel")(results), fullOutputPath: processed.fullOutputPath, subagentIndices: results.map((r) => extractCounter(r.sessionId)).filter((n): n is number => n !== undefined) },
 				};
 			}
 
@@ -1318,6 +1339,7 @@ export default function (pi: ExtensionAPI) {
 					ctx.modelRegistry,
 					parentSessionId,
 					subagentSessionDir,
+					params.continue,
 				);
 				maybeOpenTmuxWindow(result, subagentSessionDir, tmuxSetting);
 				const isError = result.exitCode !== 0 || result.stopReason === "error" || result.stopReason === "aborted";
@@ -1334,7 +1356,7 @@ export default function (pi: ExtensionAPI) {
 				const processed = processToolResultOutput(rawOutput);
 				return {
 					content: [{ type: "text", text: processed.displayText }],
-					details: { ...makeDetails("single")([result]), fullOutputPath: processed.fullOutputPath },
+					details: { ...makeDetails("single")([result]), fullOutputPath: processed.fullOutputPath, subagentIndices: [extractCounter(result.sessionId)].filter((n): n is number => n !== undefined) },
 				};
 			}
 
