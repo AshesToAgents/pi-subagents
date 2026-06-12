@@ -84,6 +84,13 @@ function extractCounter(sessionId: string | undefined): number | undefined {
 	return isNaN(n) ? undefined : n
 }
 
+function formatIndexHint(indices: (number | undefined)[]): string {
+	const valid = indices.filter((n): n is number => n !== undefined)
+	if (valid.length === 0) return ""
+	const parts = valid.map((n) => `subagentIndex: ${n}`).join(", ")
+	return `\n[${parts}]`
+}
+
 /**
  * Resolve an agent's model field to a concrete "provider/modelId" string.
  *
@@ -1236,7 +1243,7 @@ export default function (pi: ExtensionAPI) {
 				const rawOutput = getFinalOutput(results[results.length - 1].messages) || "(no output)";
 				const processed = processToolResultOutput(rawOutput);
 				return {
-					content: [{ type: "text", text: processed.displayText }],
+					content: [{ type: "text", text: processed.displayText + formatIndexHint(results.map((r) => extractCounter(r.sessionId))) }],
 					details: { ...makeDetails("chain")(results), fullOutputPath: processed.fullOutputPath, subagentIndices: results.map((r) => extractCounter(r.sessionId)).filter((n): n is number => n !== undefined) },
 				};
 			}
@@ -1319,7 +1326,7 @@ export default function (pi: ExtensionAPI) {
 				}));
 				const processed = processParallelOutput(agentOutputs, successCount);
 				return {
-					content: [{ type: "text", text: processed.displayText }],
+					content: [{ type: "text", text: processed.displayText + formatIndexHint(results.map((r) => extractCounter(r.sessionId))) }],
 					details: { ...makeDetails("parallel")(results), fullOutputPath: processed.fullOutputPath, subagentIndices: results.map((r) => extractCounter(r.sessionId)).filter((n): n is number => n !== undefined) },
 				};
 			}
@@ -1355,7 +1362,7 @@ export default function (pi: ExtensionAPI) {
 				const rawOutput = getFinalOutput(result.messages) || "(no output)";
 				const processed = processToolResultOutput(rawOutput);
 				return {
-					content: [{ type: "text", text: processed.displayText }],
+					content: [{ type: "text", text: processed.displayText + formatIndexHint([extractCounter(result.sessionId)]) }],
 					details: { ...makeDetails("single")([result]), fullOutputPath: processed.fullOutputPath, subagentIndices: [extractCounter(result.sessionId)].filter((n): n is number => n !== undefined) },
 				};
 			}
