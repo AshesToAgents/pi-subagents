@@ -1,6 +1,6 @@
 # pi-subagents
 
-A [pi](https://github.com/mariozechner/pi-coding-agent) extension that adds subagent orchestration tools — delegate tasks to specialized agents with isolated context windows.
+A [pi](https://github.com/earendil-works/pi) extension that adds subagent orchestration tools — delegate tasks to specialized agents with isolated context windows.
 
 Each subagent invocation spawns a separate `pi` process, giving it a clean context window independent of the parent conversation.
 

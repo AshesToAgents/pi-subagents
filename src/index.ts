@@ -16,9 +16,9 @@ import { execFileSync, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { AgentToolResult } from "@mariozechner/pi-agent-core";
-import type { Message, Model } from "@mariozechner/pi-ai";
-import { StringEnum } from "@mariozechner/pi-ai";
+import type { AgentToolResult } from "@earendil-works/pi-agent-core";
+import type { Message, Model } from "@earendil-works/pi-ai";
+import { StringEnum } from "@earendil-works/pi-ai";
 import {
 	type ExtensionAPI,
 	type ModelRegistry,
@@ -28,7 +28,7 @@ import {
 	getAgentDir,
 	getMarkdownTheme,
 	truncateTail,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 
 function readSettings(): Record<string, any> {
 	const settingsPath = path.join(getAgentDir(), "settings.json");
@@ -133,7 +133,7 @@ function resolveModel(
 
 	return agentModel;
 }
-import { Container, Markdown, Spacer, Text } from "@mariozechner/pi-tui";
+import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { type AgentConfig, type AgentScope, discoverAgents, isTopLevelAgent } from "./agents.js";
 import { buildTmuxWindowCommand, extractSessionSummary, getNextSubagentCounter, isTmuxAvailable } from "./session-helpers.js";

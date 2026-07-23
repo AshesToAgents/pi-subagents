@@ -53,10 +53,10 @@ const { setTmpDir, getMockModule } = vi.hoisted(() => {
 });
 
 // Mock the module
-vi.mock("@mariozechner/pi-coding-agent", () => getMockModule());
+vi.mock("@earendil-works/pi-coding-agent", () => getMockModule());
 
 // Import after mocking
-import * as piCodingAgent from "@mariozechner/pi-coding-agent";
+import * as piCodingAgent from "@earendil-works/pi-coding-agent";
 import { isTopLevelAgent, formatAgentList, type AgentConfig, discoverAgents } from "./agents.js";
 
 describe("isTopLevelAgent", () => {
