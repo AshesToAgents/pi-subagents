@@ -8,13 +8,13 @@ Each subagent invocation spawns a separate `pi` process, giving it a clean conte
 
 ```bash
 # Global (user-level)
-pi install ssh://git@github.com/SunflowerFuchs/pi-subagents.git
+pi install ssh://git@github.com/AshesToAgents/pi-subagents.git
 
 # Project-level (shared with team via .pi/settings.json)
-pi install -l ssh://git@github.com/SunflowerFuchs/pi-subagents.git
+pi install -l ssh://git@github.com/AshesToAgents/pi-subagents.git
 
 # Try without installing
-pi -e ssh://git@github.com/SunflowerFuchs/pi-subagents.git
+pi -e ssh://git@github.com/AshesToAgents/pi-subagents.git
 ```
 
 ## What's Included
