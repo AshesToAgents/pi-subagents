@@ -8,19 +8,48 @@
 import * as fs from "node:fs";
 
 /**
+ * In-process monotonic counters, keyed by `${sessionDir}::${parentId}`.
+ *
+ * The disk scan alone cannot allocate unique counters: the session file is
+ * only created once the child pi process boots, hundreds of milliseconds
+ * after spawn(). Concurrent workers (parallel tasks mode, or natively
+ * parallel tool calls) would all scan the same directory state and receive
+ * the same counter. Allocation therefore happens synchronously against this
+ * cache, seeded once from disk per key. Node's single thread makes each
+ * read-increment atomic.
+ */
+const allocatedCounters = new Map<string, number>();
+
+/**
  * Determine the next subagent counter for a given parent session.
  *
- * Scans the subagent session directory for existing session files
- * matching `<timestamp>_<parentId>-<n>.jsonl` and returns `max(n) + 1`.
- * Returns 1 when the directory does not exist or contains no matching files.
+ * Seeds from a scan of the subagent session directory for existing session
+ * files matching `<timestamp>_<parentId>-<n>.jsonl`, then increments
+ * monotonically in-process for subsequent calls, so concurrent allocations
+ * before the corresponding files exist still receive unique counters.
+ * Returns `max(n) + 1` as the seed; 1 when the directory does not exist or
+ * contains no matching files.
  *
  * @param subagentSessionDir Directory containing subagent session files
  * @param parentId Parent session id (the prefix used to identify its subagents)
  * @returns Next available counter (1 if none exist)
  */
 export function getNextSubagentCounter(subagentSessionDir: string, parentId: string): number {
+	const cacheKey = `${subagentSessionDir}::${parentId}`;
+	const cached = allocatedCounters.get(cacheKey);
+	if (cached !== undefined) {
+		allocatedCounters.set(cacheKey, cached + 1);
+		return cached;
+	}
+
+	const seeded = scanMaxCounter(subagentSessionDir, parentId) + 1;
+	allocatedCounters.set(cacheKey, seeded + 1);
+	return seeded;
+}
+
+function scanMaxCounter(subagentSessionDir: string, parentId: string): number {
 	if (!fs.existsSync(subagentSessionDir)) {
-		return 1;
+		return 0;
 	}
 
 	let entries: string[];
@@ -50,7 +79,7 @@ export function getNextSubagentCounter(subagentSessionDir: string, parentId: str
 		if (n > max) max = n;
 	}
 
-	return max + 1;
+	return max;
 }
 
 /**

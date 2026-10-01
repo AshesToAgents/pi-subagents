@@ -15,6 +15,16 @@ describe("getNextSubagentCounter", () => {
 		fs.rmSync(tmpDir, { recursive: true, force: true });
 	});
 
+	it("returns unique counters for allocations made before session files exist", () => {
+		// Reproduces the parallel-tasks race: concurrent workers allocate session
+		// ids before any child pi process has created its file on disk.
+		const first = getNextSubagentCounter(tmpDir, "parent-race");
+		const second = getNextSubagentCounter(tmpDir, "parent-race");
+		const third = getNextSubagentCounter(tmpDir, "parent-race");
+
+		expect(new Set([first, second, third]).size).toBe(3);
+	});
+
 	it("returns 1 when no sessions exist (empty dir)", () => {
 		expect(getNextSubagentCounter(tmpDir, "parent-abc")).toBe(1);
 	});
@@ -44,6 +54,15 @@ describe("getNextSubagentCounter", () => {
 
 		// Should return max + 1, not (count + 1)
 		expect(getNextSubagentCounter(tmpDir, "parent-abc")).toBe(4);
+	});
+
+	it("keeps incrementing past the disk-scan seed while files lag behind", () => {
+		fs.writeFileSync(path.join(tmpDir, "1700000000_parent-lag-1.jsonl"), "");
+
+		const first = getNextSubagentCounter(tmpDir, "parent-lag");
+		const second = getNextSubagentCounter(tmpDir, "parent-lag");
+
+		expect(second).toBe(first + 1);
 	});
 
 	it("returns 1 when the directory does not exist", () => {
