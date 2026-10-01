@@ -135,6 +135,7 @@ function resolveModel(
 }
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { normalizeExitCode, processParallelOutput } from "./output.js";
 import { type AgentConfig, type AgentScope, discoverAgents, isTopLevelAgent } from "./agents.js";
 import { buildTmuxWindowCommand, extractSessionSummary, getNextSubagentCounter, isTmuxAvailable } from "./session-helpers.js";
 
@@ -522,71 +523,9 @@ function processToolResultOutput(text: string): { displayText: string; fullOutpu
 	return { displayText, fullOutputPath: fullPath };
 }
 
-/**
- * For parallel mode: truncate each agent's output proportionally rather than
- * truncating the combined string (which would cut off early agents entirely).
- * Writes the full combined output to a temp file.
- */
-function processParallelOutput(
-	agentOutputs: Array<{ agent: string; exitCode: number; output: string }>,
-	successCount: number,
-): { displayText: string; fullOutputPath?: string } {
-	const fullSections = agentOutputs.map((a) => {
-		const status = a.exitCode === 0 ? "completed" : "failed";
-		return `[${a.agent}] ${status}:\n${a.output || "(no output)"}`;
-	});
-	const fullText = `Parallel: ${successCount}/${agentOutputs.length} succeeded\n\n${fullSections.join("\n\n")}`;
-
-	const outputBytes = Buffer.byteLength(fullText, "utf-8");
-	const outputLines = fullText.split("\n").length;
-
-	if (outputBytes <= DEFAULT_MAX_BYTES && outputLines <= DEFAULT_MAX_LINES) {
-		return { displayText: fullText };
-	}
-
-	// Write full output to temp file
-	const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-subagent-output-"));
-	const fullPath = path.join(tmpDir, "output.md");
-	fs.writeFileSync(fullPath, fullText, { encoding: "utf-8", mode: 0o600 });
-
-	// Budget: divide limits equally among agents
-	const budgetBytes = Math.floor(DEFAULT_MAX_BYTES / agentOutputs.length);
-	const budgetLines = Math.floor(DEFAULT_MAX_LINES / agentOutputs.length);
-
-	const truncatedSections = agentOutputs.map((a) => {
-		const status = a.exitCode === 0 ? "completed" : "failed";
-		const header = `[${a.agent}] ${status}:\n`;
-		const headerBytes = Buffer.byteLength(header, "utf-8");
-		const availableBytes = Math.max(0, budgetBytes - headerBytes);
-
-		if (!a.output || a.output === "(no output)") {
-			return header + (a.output || "(no output)");
-		}
-
-		const truncation = truncateTail(a.output, { maxLines: budgetLines, maxBytes: availableBytes });
-
-		if (!truncation.truncated) {
-			return header + a.output;
-		}
-
-		const omitLines = truncation.totalLines - truncation.outputLines;
-		const omitBytes = truncation.totalBytes - truncation.outputBytes;
-		return (
-			header +
-			truncation.content +
-			`\n[...${omitLines} lines (${formatSize(omitBytes)}) truncated. See full output file.]`
-		);
-	});
-
-	let displayText = `Parallel: ${successCount}/${agentOutputs.length} succeeded\n\n${truncatedSections.join("\n\n")}`;
-	displayText += `\n\n[Full output saved to: ${fullPath}]`;
-
-	return { displayText, fullOutputPath: fullPath };
-}
-
 type OnUpdateCallback = (partial: AgentToolResult<SubagentDetails>) => void;
 
-async function runSingleAgent(
+export async function runSingleAgent(
 	defaultCwd: string,
 	agents: AgentConfig[],
 	agentName: string,
@@ -742,10 +681,11 @@ async function runSingleAgent(
 
 			proc.on("close", (code) => {
 				if (buffer.trim()) processLine(buffer);
-				resolve(code ?? 0);
+				resolve(normalizeExitCode(code));
 			});
 
-			proc.on("error", () => {
+			proc.on("error", (err) => {
+				currentResult.stderr += `spawn pi: ${String(err)}`;
 				resolve(1);
 			});
 
@@ -1323,6 +1263,8 @@ export default function (pi: ExtensionAPI) {
 					agent: r.agent,
 					exitCode: r.exitCode,
 					output: getFinalOutput(r.messages),
+					stderr: r.stderr || undefined,
+					errorMessage: r.errorMessage || undefined,
 				}));
 				const processed = processParallelOutput(agentOutputs, successCount);
 				return {
