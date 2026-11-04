@@ -802,7 +802,7 @@ export default function (pi: ExtensionAPI) {
 		promptSnippet: "List available subagents. Defaults to a quick overview (name + description). Use detail=\"full\" for model/tools/source/path.",
 		parameters: SubagentAgentsParams,
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const agentScope: AgentScope = params.agentScope ?? DEFAULT_AGENT_SCOPE;
+			const agentScope: AgentScope = (params.agentScope ?? DEFAULT_AGENT_SCOPE) as AgentScope;
 			const detail: AgentInfoDetail = (params.detail ?? "summary") as AgentInfoDetail;
 			const report = await buildSubagentAgentsReport(ctx.cwd, agentScope, detail);
 
@@ -1060,7 +1060,7 @@ export default function (pi: ExtensionAPI) {
 		parameters: SubagentParams,
 
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
-			const agentScope: AgentScope = params.agentScope ?? DEFAULT_AGENT_SCOPE;
+			const agentScope: AgentScope = (params.agentScope ?? DEFAULT_AGENT_SCOPE) as AgentScope;
 			const discovery = await discoverAgents(ctx.cwd, agentScope);
 			const agents = discovery.agents;
 			const confirmProjectAgents = params.confirmProjectAgents ?? true;
@@ -1317,7 +1317,7 @@ export default function (pi: ExtensionAPI) {
 		},
 
 		renderCall(args, theme) {
-			const scope: AgentScope = args.agentScope ?? DEFAULT_AGENT_SCOPE;
+			const scope: AgentScope = (args.agentScope ?? DEFAULT_AGENT_SCOPE) as AgentScope;
 
 			const continueLabel = (c: any) => c != null ? theme.fg("warning", ` (continue: ${c})`) : "";
 
