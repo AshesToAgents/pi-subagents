@@ -590,7 +590,7 @@ export async function runSingleAgent(
 		agent: agentName,
 		agentSource: agent.source,
 		task,
-		exitCode: 0,
+		exitCode: -1, // -1 = still running; real exit code assigned when the process closes
 		messages: [],
 		stderr: "",
 		usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
@@ -1379,6 +1379,13 @@ export default function (pi: ExtensionAPI) {
 				return idx != null ? theme.fg("dim", ` #${idx}`) : ""
 			};
 
+			const statusIcon = (r: SingleResult) =>
+				r.exitCode === -1
+					? theme.fg("warning", "⏳")
+					: r.exitCode === 0
+						? theme.fg("success", "✓")
+						: theme.fg("error", "✗");
+
 			const renderDisplayItems = (items: DisplayItem[], limit?: number) => {
 				const toShow = limit ? items.slice(-limit) : items;
 				const skipped = limit && items.length > limit ? items.length - limit : 0;
@@ -1397,8 +1404,10 @@ export default function (pi: ExtensionAPI) {
 
 			if (details.mode === "single" && details.results.length === 1) {
 				const r = details.results[0];
-				const isError = r.exitCode !== 0 || r.stopReason === "error" || r.stopReason === "aborted";
-				const icon = isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
+				const isRunning = r.exitCode === -1;
+				const isError =
+					!isRunning && (r.exitCode !== 0 || r.stopReason === "error" || r.stopReason === "aborted");
+				const icon = statusIcon(r);
 				const displayItems = getDisplayItems(r.messages);
 				const finalOutput = getFinalOutput(r.messages);
 
@@ -1415,7 +1424,9 @@ export default function (pi: ExtensionAPI) {
 					container.addChild(new Spacer(1));
 					container.addChild(new Text(theme.fg("muted", "─── Output ───"), 0, 0));
 					if (displayItems.length === 0 && !finalOutput) {
-						container.addChild(new Text(theme.fg("muted", "(no output)"), 0, 0));
+						container.addChild(
+							new Text(theme.fg("muted", isRunning ? "(running...)" : "(no output)"), 0, 0),
+						);
 					} else {
 						for (const item of displayItems) {
 							if (item.type === "toolCall")
@@ -1444,7 +1455,8 @@ export default function (pi: ExtensionAPI) {
 				let text = `${icon} ${theme.fg("toolTitle", theme.bold(r.agent))}${indexLabel(0)}${theme.fg("muted", ` (${r.agentSource})`)}`;
 				if (isError && r.stopReason) text += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
 				if (isError && r.errorMessage) text += `\n${theme.fg("error", `Error: ${r.errorMessage}`)}`;
-				else if (displayItems.length === 0) text += `\n${theme.fg("muted", "(no output)")}`;
+				else if (displayItems.length === 0)
+					text += `\n${theme.fg("muted", isRunning ? "(running...)" : "(no output)")}`;
 				else {
 					text += `\n${renderDisplayItems(displayItems, COLLAPSED_ITEM_COUNT)}`;
 					if (displayItems.length > COLLAPSED_ITEM_COUNT) text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
@@ -1469,8 +1481,14 @@ export default function (pi: ExtensionAPI) {
 			};
 
 			if (details.mode === "chain") {
+				const runningCount = details.results.filter((r) => r.exitCode === -1).length;
 				const successCount = details.results.filter((r) => r.exitCode === 0).length;
-				const icon = successCount === details.results.length ? theme.fg("success", "✓") : theme.fg("error", "✗");
+				const icon =
+					runningCount > 0
+						? theme.fg("warning", "⏳")
+						: successCount === details.results.length
+							? theme.fg("success", "✓")
+							: theme.fg("error", "✗");
 
 				if (expanded) {
 					const container = new Container();
@@ -1487,7 +1505,7 @@ export default function (pi: ExtensionAPI) {
 
 					for (let ri = 0; ri < details.results.length; ri++) {
 						const r = details.results[ri];
-						const rIcon = r.exitCode === 0 ? theme.fg("success", "✓") : theme.fg("error", "✗");
+						const rIcon = statusIcon(r);
 						const displayItems = getDisplayItems(r.messages);
 						const finalOutput = getFinalOutput(r.messages);
 
@@ -1541,10 +1559,11 @@ export default function (pi: ExtensionAPI) {
 					theme.fg("accent", `${successCount}/${details.results.length} steps`);
 				for (let ri = 0; ri < details.results.length; ri++) {
 					const r = details.results[ri];
-					const rIcon = r.exitCode === 0 ? theme.fg("success", "✓") : theme.fg("error", "✗");
+					const rIcon = statusIcon(r);
 					const displayItems = getDisplayItems(r.messages);
 					text += `\n\n${theme.fg("muted", `─── Step ${r.step}: `)}${theme.fg("accent", r.agent)}${indexLabel(ri)} ${rIcon}`;
-					if (displayItems.length === 0) text += `\n${theme.fg("muted", "(no output)")}`;
+					if (displayItems.length === 0)
+						text += `\n${theme.fg("muted", r.exitCode === -1 ? "(running...)" : "(no output)")}`;
 					else text += `\n${renderDisplayItems(displayItems, 5)}`;
 				}
 				const usageStr = formatUsageStats(aggregateUsage(details.results));
@@ -1580,7 +1599,7 @@ export default function (pi: ExtensionAPI) {
 
 					for (let ri = 0; ri < details.results.length; ri++) {
 						const r = details.results[ri];
-						const rIcon = r.exitCode === 0 ? theme.fg("success", "✓") : theme.fg("error", "✗");
+						const rIcon = statusIcon(r);
 						const displayItems = getDisplayItems(r.messages);
 						const finalOutput = getFinalOutput(r.messages);
 
@@ -1626,12 +1645,7 @@ export default function (pi: ExtensionAPI) {
 				let text = `${icon} ${theme.fg("toolTitle", theme.bold("parallel "))}${theme.fg("accent", status)}`;
 				for (let ri = 0; ri < details.results.length; ri++) {
 					const r = details.results[ri];
-					const rIcon =
-						r.exitCode === -1
-							? theme.fg("warning", "⏳")
-							: r.exitCode === 0
-								? theme.fg("success", "✓")
-								: theme.fg("error", "✗");
+					const rIcon = statusIcon(r);
 					const displayItems = getDisplayItems(r.messages);
 					text += `\n\n${theme.fg("muted", "─── ")}${theme.fg("accent", r.agent)}${indexLabel(ri)} ${rIcon}`;
 					if (displayItems.length === 0)
