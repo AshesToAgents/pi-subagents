@@ -1641,20 +1641,22 @@ export default function (pi: ExtensionAPI) {
 					return container;
 				}
 
-				// Collapsed view (or still running)
+				// Collapsed view (or still running): one status line per task, no output.
+				// Failed tasks keep a one-line error preview so failures stay visible without expanding.
 				let text = `${icon} ${theme.fg("toolTitle", theme.bold("parallel "))}${theme.fg("accent", status)}`;
 				for (let ri = 0; ri < details.results.length; ri++) {
 					const r = details.results[ri];
-					const rIcon = statusIcon(r);
-					const displayItems = getDisplayItems(r.messages);
-					text += `\n\n${theme.fg("muted", "─── ")}${theme.fg("accent", r.agent)}${indexLabel(ri)} ${rIcon}`;
-					if (displayItems.length === 0)
-						text += `\n${theme.fg("muted", r.exitCode === -1 ? "(running...)" : "(no output)")}`;
-					else text += `\n${renderDisplayItems(displayItems, 5)}`;
+					text += `\n  ${statusIcon(r)} ${theme.fg("accent", r.agent)}${indexLabel(ri)}`;
+					if (r.exitCode > 0) {
+						const src = r.errorMessage || r.stderr || getFinalOutput(r.messages) || "";
+						const firstLine = src.split("\n").find((l: string) => l.trim()) ?? "";
+						const preview = firstLine.length > 100 ? `${firstLine.slice(0, 100)}...` : firstLine;
+						if (preview) text += `\n    ${theme.fg("error", `Error: ${preview}`)}`;
+					}
 				}
 				if (!isRunning) {
 					const usageStr = formatUsageStats(aggregateUsage(details.results));
-					if (usageStr) text += `\n\n${theme.fg("dim", `Total: ${usageStr}`)}`;
+					if (usageStr) text += `\n${theme.fg("dim", `Total: ${usageStr}`)}`;
 				}
 				text += renderFullPath(details, theme);
 				if (!expanded) text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
