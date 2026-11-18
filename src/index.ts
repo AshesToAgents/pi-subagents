@@ -1587,7 +1587,7 @@ export default function (pi: ExtensionAPI) {
 					? `${successCount + failCount}/${details.results.length} done, ${running} running`
 					: `${successCount}/${details.results.length} tasks`;
 
-				if (expanded && !isRunning) {
+				if (expanded) {
 					const container = new Container();
 					container.addChild(
 						new Text(
@@ -1641,7 +1641,7 @@ export default function (pi: ExtensionAPI) {
 					return container;
 				}
 
-				// Collapsed view (or still running): one status line per task, no output.
+				// Collapsed view: one status line per task, no output.
 				// Failed tasks keep a one-line error preview so failures stay visible without expanding.
 				let text = `${icon} ${theme.fg("toolTitle", theme.bold("parallel "))}${theme.fg("accent", status)}`;
 				for (let ri = 0; ri < details.results.length; ri++) {
